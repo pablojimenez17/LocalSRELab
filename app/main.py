@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, status, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 from prometheus_fastapi_instrumentator import Instrumentator
 
@@ -66,8 +66,6 @@ app = FastAPI(
 instrumentator = Instrumentator(
     should_group_status_codes=False,
     should_ignore_untemplated=True,
-    should_respect_env_var=True,
-    env_var_name="ENABLE_METRICS",
     excluded_handlers=["/metrics", "/healthz"]
 )
 instrumentator.instrument(app).expose(app, endpoint="/metrics")
@@ -85,8 +83,7 @@ class ItemResponse(BaseModel):
     description: Optional[str]
     created_at: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==========================================================
@@ -233,8 +230,8 @@ def chaos_cpu_stress(duration_seconds: int = Query(default=5, ge=1, le=60)):
     start = time.time()
     count = 0
     while time.time() - start < duration_seconds:
-        # Intensive computation
-        _ = math.sqrt(math.factorial(200) + count)
+        # Intensive CPU computation without float overflow
+        _ = sum(i * i for i in range(2500))
         count += 1
 
     logger.info(f"Completed CPU stress run with {count} iterations")

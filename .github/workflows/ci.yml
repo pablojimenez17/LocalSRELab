@@ -85,8 +85,10 @@ jobs:
       - name: Validate Kustomize Build
         run: |
           kubectl kustomize k8s/ > compiled-manifests.yaml
-          cat compiled-manifests.yaml | head -n 30
+          echo "Kustomize successfully compiled $(grep -c 'apiVersion:' compiled-manifests.yaml) Kubernetes resources."
 
-      - name: Client-Side Schema Validation
-        run: |
-          kubectl apply --dry-run=client -k k8s/
+      - name: Schema Validation with Kubeconform
+        uses: yannh/kubeconform-action@v0.3.2
+        with:
+          k8s-version: 'v1.30.0'
+          files: 'compiled-manifests.yaml'
