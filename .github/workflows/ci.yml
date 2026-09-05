@@ -60,14 +60,15 @@ jobs:
           load: true
 
       - name: Scan Image with Trivy for CVEs
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          image-ref: localsre-api:ci-${{ github.sha }}
-          format: "table"
-          exit-code: "0"
-          ignore-unfixed: true
-          vuln-type: "os,library"
-          severity: "CRITICAL,HIGH"
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image \
+            --format table \
+            --exit-code 0 \
+            --ignore-unfixed \
+            --vuln-type os,library \
+            --severity CRITICAL,HIGH \
+            localsre-api:ci-${{ github.sha }}
 
   k8s-manifest-validation:
     name: Kubernetes Manifests Dry-Run Validation
