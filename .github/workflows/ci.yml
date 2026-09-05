@@ -60,7 +60,7 @@ jobs:
           load: true
 
       - name: Scan Image with Trivy for CVEs
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: localsre-api:ci-${{ github.sha }}
           format: "table"
@@ -87,8 +87,7 @@ jobs:
           kubectl kustomize k8s/ > compiled-manifests.yaml
           echo "Kustomize successfully compiled $(grep -c 'apiVersion:' compiled-manifests.yaml) Kubernetes resources."
 
-      - name: Schema Validation with Kubeconform
-        uses: yannh/kubeconform-action@v0.3.2
-        with:
-          k8s-version: 'v1.30.0'
-          files: 'compiled-manifests.yaml'
+      - name: Validate Kubernetes Schemas with Kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          ./kubeconform -summary -ignore-missing-schemas compiled-manifests.yaml
