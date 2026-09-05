@@ -1,0 +1,149 @@
+---
+- name: Provision and Harden Local SRE Linux Host
+  hosts: sre_nodes
+  become: true
+
+  vars:
+    docker_packages:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - software-properties-common
+      - htop
+      - jq
+
+  tasks:
+    - name: Update APT cache and upgrade installed packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+        cache_valid_time: 3600
+
+    - name: Install system prerequisite utilities
+      apt:
+        name: "{{ docker_packages }}"
+        state: present
+
+    # ==========================================================================
+    # Kernel & Sysctl Tuning for SRE / Kubernetes workloads
+    # ==========================================================================
+    - name: Enable kernel modules (overlay, br_netfilter)
+      copy:
+        dest: /etc/modules-load.d/k8s.conf
+        content: |
+          overlay
+          br_netfilter
+
+    - name: Apply sysctl params for container networking
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { key: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { key: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+        - { key: 'net.ipv4.ip_forward', value: '1' }
+        - { key: 'vm.max_map_count', value: '262144' }
+
+    # ==========================================================================
+    # Docker Engine Installation
+    # ==========================================================================
+    - name: Add Docker official GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository to APT sources
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker CE and Compose plugin
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+
+    - name: Ensure Docker service is enabled and active
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add standard user to docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    # ==========================================================================
+    # Prometheus Node Exporter Daemon
+    # ==========================================================================
+    - name: Create dedicated node_exporter system group
+      group:
+        name: node_exporter
+        system: yes
+
+    - name: Create dedicated node_exporter system user
+      user:
+        name: node_exporter
+        group: node_exporter
+        system: yes
+        shell: /usr/sbin/nologin
+
+    - name: Download and unpack Prometheus Node Exporter
+      unarchive:
+        src: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+        dest: /tmp/
+        remote_src: yes
+
+    - name: Copy Node Exporter binary to /usr/local/bin
+      copy:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+        dest: /usr/local/bin/node_exporter
+        remote_src: yes
+        owner: node_exporter
+        group: node_exporter
+        mode: '0755'
+
+    - name: Configure Node Exporter systemd unit service
+      copy:
+        dest: /etc/systemd/system/node_exporter.service
+        content: |
+          [Unit]
+          Description=Prometheus Node Exporter
+          After=network.target
+
+          [Service]
+          User=node_exporter
+          Group=node_exporter
+          Type=simple
+          ExecStart=/usr/local/bin/node_exporter
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd and enable Node Exporter
+      systemd:
+        name: node_exporter
+        daemon_reload: yes
+        state: started
+        enabled: yes
+
+    - name: Check Node Exporter metrics endpoint
+      uri:
+        url: "http://localhost:9100/metrics"
+        return_content: yes
+      register: metrics_output
+      failed_when: "'node_cpu_seconds_total' not in metrics_output.content"
+
+    - name: Show completion message
+      debug:
+        msg: "SRE Linux Host {{ inventory_hostname }} provisioned successfully! Node Exporter running on port 9100."

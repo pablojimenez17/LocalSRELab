@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localsre-api
+  namespace: localsre
+  labels:
+    app.kubernetes.io/name: localsre-api
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: localsre-lab
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: localsre-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: localsre-api
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: api
+          image: localsre-api:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: api-config
+          env:
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: DB_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: REDIS_PASSWORD
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2

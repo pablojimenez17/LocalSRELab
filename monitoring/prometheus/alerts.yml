@@ -1,0 +1,32 @@
+groups:
+  - name: localsre_alerts
+    rules:
+      - alert: HighHttp5xxErrorRate
+        expr: (sum(rate(http_requests_total{status=~"5.."}[1m])) / sum(rate(http_requests_total[1m]))) * 100 > 5
+        for: 30s
+        labels:
+          severity: critical
+          service: localsre-api
+        annotations:
+          summary: "High HTTP 5xx error rate detected (> 5%)"
+          description: "API HTTP 5xx errors represent {{ $value | printf \"%.2f\" }}% of total traffic over the last minute."
+
+      - alert: HighRequestLatencyP99
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[2m])) by (le)) > 0.300
+        for: 1m
+        labels:
+          severity: warning
+          service: localsre-api
+        annotations:
+          summary: "P99 latency exceeding 300ms SLA"
+          description: "P99 latency has reached {{ $value | printf \"%.3f\" }}s over the last 2 minutes."
+
+      - alert: ApiServiceDown
+        expr: up{job="localsre-api"} == 0
+        for: 20s
+        labels:
+          severity: page
+          service: localsre-api
+        annotations:
+          summary: "LocalSRE API service is unreachable"
+          description: "Prometheus has been unable to scrape instance {{ $labels.instance }} for more than 20 seconds."

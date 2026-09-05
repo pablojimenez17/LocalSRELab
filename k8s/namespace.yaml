@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: localsre
+  labels:
+    app.kubernetes.io/name: localsre-lab
+    environment: production-like

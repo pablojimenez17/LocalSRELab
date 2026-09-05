@@ -1,0 +1,143 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: localsre-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=LocalSRE API
+      - ENVIRONMENT=local-docker
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=localsredb
+      - DB_USER=sreuser
+      - DB_PASSWORD=change-me-sre-password
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ENABLE_CHAOS_ENDPOINTS=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - localsre-net
+    labels:
+      logging: "promtail"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: localsre-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: localsredb
+      POSTGRES_USER: sreuser
+      POSTGRES_PASSWORD: change-me-sre-password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sreuser -d localsredb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - localsre-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: localsre-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - localsre-net
+
+  # ============================================================================
+  # Observability Stack
+  # ============================================================================
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: localsre-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - promdata:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    networks:
+      - localsre-net
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: localsre-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - localsre-net
+
+  loki:
+    image: grafana/loki:3.1.1
+    container_name: localsre-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - localsre-net
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    container_name: localsre-promtail
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/loki/promtail-config.yaml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - localsre-net
+
+networks:
+  localsre-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  promdata:
+  grafanadata:
